@@ -31,7 +31,8 @@ void broadcast_snapshot() {
     }
 }
 
-int main() {
+int main() 
+{
     signal(SIGINT, handle_signal);
     
     srand(time(NULL));
