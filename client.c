@@ -7,21 +7,25 @@
 #include <sys/time.h>
 
 int client_sock;
-int player_id = -1;
-int running = 1;
+int player_id = -1; //no players assigned
+int running = 1; //start with game running
 GameWorld world;
-ClientInputBuffer input_buffer;
-NetworkStats stats;
+ClientInputBuffer input_buffer; //stores INPUTS (key presses) that haven't been confirmed by the server yet.
+NetworkStats stats; //stores latency, jitter, loss, bandwidth stats
 
-struct sockaddr_in server_addr;
-uint32_t bytes_sent = 0;
-uint32_t last_bandwidth_update = 0;
-uint32_t last_bytes_sent = 0;
-int has_snapshot = 0;
-uint32_t ping_send_time = 0;
-uint32_t last_stats_print = 0;
+struct sockaddr_in server_addr; //server's IP address and port
+uint32_t bytes_sent = 0; //total bytes sent (running total)
+uint32_t last_bandwidth_update = 0; //last time bandwidth was calculated
+uint32_t last_bytes_sent = 0; //bytes at last checkpoint
+int has_snapshot = 0; //whether we've received first game state
+uint32_t ping_send_time = 0; //when last ping was sent
+uint32_t last_stats_print = 0; //when stats were last printed
 
-void measure_bandwidth(uint32_t now) {
+// Dedicated stats window
+WINDOW *stats_win = NULL;
+
+void measure_bandwidth(uint32_t now)
+{
     if (last_bandwidth_update == 0) {
         last_bandwidth_update = now;
         last_bytes_sent = bytes_sent;
@@ -70,7 +74,9 @@ int main(int argc, char *argv[]) {
     
     printf("Connecting to server at %s:%d...\n", argv[1], PORT);
     
-    while (player_id == -1 && (get_time_ms() - start) < 5000) {
+    // Connection loop - wait up to 5 seconds for JOIN ACK
+    while (player_id == -1 && (get_time_ms() - start) < 5000)  
+    {
         int len = receive_packet(client_sock, buffer, sizeof(buffer), &from);
         if (len >= 2 && buffer[0] == MSG_JOIN) {
             player_id = buffer[1];
@@ -93,9 +99,9 @@ int main(int argc, char *argv[]) {
     
     if (has_colors()) {
         start_color();
-        init_pair(1, COLOR_YELLOW, COLOR_BLACK);
-        init_pair(2, COLOR_GREEN, COLOR_BLACK);
-        init_pair(3, COLOR_CYAN, COLOR_BLACK);
+        init_pair(1, COLOR_YELLOW, COLOR_BLACK); //coins
+        init_pair(2, COLOR_GREEN, COLOR_BLACK);  //local player
+        init_pair(3, COLOR_CYAN, COLOR_BLACK);   //other players
     }
     
     uint32_t last_ping = 0;
@@ -105,26 +111,26 @@ int main(int argc, char *argv[]) {
     clear();
     refresh();
     
-    printf("Game started! Press WASD to move, Q to quit\n");
-    printf("Packet Loss: 20%% simulated on server\n\n");
+    // Create dedicated stats window at the bottom
+    int max_y, max_x;
+    getmaxyx(stdscr, max_y, max_x);
+    stats_win = newwin(1, max_x, max_y - 1, 0);
+    wrefresh(stats_win);
     
-    // Initialize sequence tracking
+    // Initialize stats
     stats.last_sequence = 0;
     stats.packets_lost = 0;
     stats.packets_received = 0;
     stats.avg_latency_ms = 0;
     stats.jitter_ms = 0;
     stats.rtt_ms = 0;
-    last_stats_print = get_time_ms();
     
-    // For tracking last printed correction
-    uint32_t last_correction_time = 0;
-    int packet_loss_counter = 0;
+    last_stats_print = get_time_ms();
     
     while (running) {
         uint32_t now = get_time_ms();
         
-        // Send ping for RTT
+        // Send ping for RTT measurement (every 1 second)
         if (now - last_ping >= 1000) {
             uint8_t ping = MSG_PING;
             ping_send_time = now;
@@ -132,7 +138,7 @@ int main(int argc, char *argv[]) {
             last_ping = now;
         }
         
-        // Receive packets
+        // Receive all pending packets
         int len;
         while ((len = receive_packet(client_sock, buffer, sizeof(buffer), &from)) > 0) {
             if (buffer[0] == MSG_PONG) {
@@ -142,45 +148,28 @@ int main(int argc, char *argv[]) {
             else if ((size_t)len >= sizeof(GameSnapshot)) {
                 GameSnapshot *snap = (GameSnapshot*)buffer;
                 
-                // PROPER PACKET LOSS DETECTION
+                // Use global sequence number from server
+                uint32_t global_seq = snap->sequence;
+                
+                // Track packet loss (silently - for final stats only)
                 if (stats.last_sequence > 0) {
-                    if (snap->sequence > stats.last_sequence + 1) {
-                        int lost = snap->sequence - stats.last_sequence - 1;
+                    if (global_seq > stats.last_sequence + 1) {
+                        int lost = global_seq - stats.last_sequence - 1;
                         stats.packets_lost += lost;
-                        packet_loss_counter++;
                     }
                 }
-                stats.last_sequence = snap->sequence;
+                
+                stats.last_sequence = global_seq;
                 stats.packets_received++;
                 
-                // Update loss rate
-                uint32_t total = stats.packets_lost + stats.packets_received;
-                if (total > 0) {
-                    stats.packet_loss_rate = (float)stats.packets_lost / total * 100.0f;
-                }
-                
+                // Calculate latency
                 uint32_t latency = now - snap->timestamp;
                 update_network_stats(&stats, latency, 1, 0);
                 
-                // Apply snapshot directly
+                // Apply snapshot (full state sync)
                 memcpy(world.players, snap->players, sizeof(world.players));
                 memcpy(world.coins, snap->coins, sizeof(world.coins));
                 world.player_count = snap->player_count;
-                
-                // Server correction (only print if actually corrected and not too frequent)
-                if (world.players[player_id].x != snap->players[player_id].x ||
-                    world.players[player_id].y != snap->players[player_id].y) {
-                    
-                    if (now - last_correction_time > 500) {
-                        // Save cursor position, print correction, restore
-                        printf("\n🔄 CORRECTION: (%d,%d) -> (%d,%d)\n",
-                               world.players[player_id].x,
-                               world.players[player_id].y,
-                               snap->players[player_id].x,
-                               snap->players[player_id].y);
-                        last_correction_time = now;
-                    }
-                }
                 
                 // Server correction
                 world.players[player_id] = snap->players[player_id];
@@ -191,7 +180,7 @@ int main(int argc, char *argv[]) {
         
         measure_bandwidth(now);
         
-        // Handle input
+        // Handle input (WASD movement)
         int dir = 0;
         int ch = getch();
         
@@ -217,7 +206,7 @@ int main(int argc, char *argv[]) {
                 input_buffer.inputs[input_buffer.count++] = cmd;
             }
             
-            // CLIENT PREDICTION - move instantly
+            // CLIENT PREDICTION - move instantly (no waiting)
             update_player(&world, player_id, (uint8_t)dir);
             
             // Send to server
@@ -227,30 +216,24 @@ int main(int argc, char *argv[]) {
             send_packet_with_stats(out, sizeof(out));
         }
         
-        // Display network stats on a single line (updates every 200ms)
+        // Update stats window - NO LOSS DISPLAYED
         if (now - last_stats_print >= 200) {
-            // Move cursor to bottom line, clear it, print stats
-            int max_y, max_x;
-            getmaxyx(stdscr, max_y, max_x);
-            
-            // Print stats line at the bottom of the screen
-            attron(COLOR_PAIR(3));
-            mvprintw(max_y - 1, 0, 
-                     "Latency: %.0f ms | Jitter: %.0f ms | Loss: %.1f%% | RTT: %u ms | BW: %.0f KB/s     ",
-                     stats.avg_latency_ms,
-                     stats.jitter_ms,
-                     stats.packet_loss_rate,
-                     stats.rtt_ms,
-                     stats.bandwidth_kbps);
-            attroff(COLOR_PAIR(3));
-            refresh();
-            
+            werase(stats_win);
+            wattron(stats_win, COLOR_PAIR(3));
+            mvwprintw(stats_win, 0, 0,
+                      "Latency: %.0f ms | Jitter: %.0f ms | RTT: %u ms | BW: %.0f KB/s",
+                      stats.avg_latency_ms,
+                      stats.jitter_ms,
+                      stats.rtt_ms,
+                      stats.bandwidth_kbps);
+            wattroff(stats_win, COLOR_PAIR(3));
+            wrefresh(stats_win);
             last_stats_print = now;
         }
         
-        // Render game
+        // Render game (30 FPS)
         if (has_snapshot && (now - last_render >= 33)) {
-            render_game(&world, player_id, &stats);
+            render_game(&world, player_id);
             last_render = now;
         }
         
@@ -261,9 +244,19 @@ int main(int argc, char *argv[]) {
     uint8_t leave_msg[2] = {MSG_LEAVE, (uint8_t)player_id};
     send_packet_with_stats(leave_msg, 2);
     
+    if (stats_win) delwin(stats_win);
     endwin();
     close(client_sock);
-    print_network_analysis(&stats);
+    
+    /*
+    printf("\n\n");
+    printf("        FINAL NETWORK STATS             \n");
+    printf("Average Latency:        %7.2f ms      \n", stats.avg_latency_ms);
+    printf("Average Jitter:         %7.2f ms      \n", stats.jitter_ms);
+    printf("Average RTT:            %7u ms        \n", stats.rtt_ms);
+    );
+    */
+    print_network_analysis(stats,world,player_id); 
     
     return 0;
 }

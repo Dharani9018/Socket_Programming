@@ -122,7 +122,8 @@ void simulate_fixed_tick(GameWorld *world) {
     }
 }
 
-void render_game(GameWorld *w, int local_id, NetworkStats *stats) {
+void render_game(GameWorld *w, int local_id) {
+    // Create windows once
     if (!game_win) {
         int max_y, max_x;
         getmaxyx(stdscr, max_y, max_x);
@@ -134,57 +135,40 @@ void render_game(GameWorld *w, int local_id, NetworkStats *stats) {
         if (GRID_HEIGHT < 15) GRID_HEIGHT = 15;
         
         game_win = newwin(GRID_HEIGHT + 2, GRID_WIDTH + 2, 0, 0);
-        info_win = newwin(8, GRID_WIDTH + 2, GRID_HEIGHT + 2, 0);
-        box(game_win, 0, 0);
-        box(info_win, 0, 0);
     }
-    
+
+    // Clear everything fully every frame - prevents ghost artifacts
     werase(game_win);
     box(game_win, 0, 0);
-    
-    // Draw coins
+
+    // Draw all coins
     for (int i = 0; i < MAX_COINS; i++) {
-        if (w->coins[i].active && 
-            w->coins[i].x < GRID_WIDTH && 
+        if (w->coins[i].active &&
+            w->coins[i].x < GRID_WIDTH &&
             w->coins[i].y < GRID_HEIGHT) {
             wattron(game_win, COLOR_PAIR(1));
             mvwprintw(game_win, w->coins[i].y + 1, w->coins[i].x + 1, COIN);
             wattroff(game_win, COLOR_PAIR(1));
         }
     }
-    
-    // Draw players
+
+    // Draw all players
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (w->players[i].active && 
-            w->players[i].x < GRID_WIDTH && 
+        if (w->players[i].active &&
+            w->players[i].x < GRID_WIDTH &&
             w->players[i].y < GRID_HEIGHT) {
             int color = (i == local_id) ? 2 : 3;
             wattron(game_win, COLOR_PAIR(color));
             if (i == local_id) wattron(game_win, A_BOLD);
-            
             mvwprintw(game_win, w->players[i].y + 1, w->players[i].x + 1, CAT);
-            
             if (i == local_id) wattroff(game_win, A_BOLD);
             wattroff(game_win, COLOR_PAIR(color));
         }
     }
-    
-    wrefresh(game_win);
-    
-    // Info panel
-    werase(info_win);
-    box(info_win, 0, 0);
-    
-    mvwprintw(info_win, 1, 2, "Player: %d  Score: %d", 
-              local_id, w->players[local_id].score);
-    mvwprintw(info_win, 2, 2, "Players: %d", w->player_count);
-    mvwprintw(info_win, 3, 2, "Latency: %.0f ms", stats->avg_latency_ms);
-    mvwprintw(info_win, 4, 2, "Jitter: %.0f ms", stats->jitter_ms);
-    mvwprintw(info_win, 5, 2, "Loss: %.1f%%", stats->packet_loss_rate);
-    mvwprintw(info_win, 6, 2, "RTT: %u ms", stats->rtt_ms);
-    mvwprintw(info_win, 7, 2, "WASD to move | Q to quit");
-    
-    wrefresh(info_win);
+
+    wnoutrefresh(game_win);
+
+    doupdate();
 }
 
 int get_input(void) {
@@ -199,11 +183,13 @@ int get_input(void) {
     }
 }
 
-void print_network_analysis(NetworkStats *stats) {
-    printf("\n=== NETWORK STATS ===\n");
-    printf("Avg Latency: %.2f ms\n", stats->avg_latency_ms);
-    printf("Jitter: %.2f ms\n", stats->jitter_ms);
-    printf("Loss Rate: %.2f%%\n", stats->packet_loss_rate);
-    printf("RTT: %u ms\n", stats->rtt_ms);
-    printf("===================\n");
+void print_network_analysis(NetworkStats stats, GameWorld w,int local_id) 
+{
+    printf("\n\nTotal Score: %d",w.players[local_id].score);
+    printf("\n  NETWORK STATS\n");
+    printf("Avg Latency:        %.2f ms\n", stats.avg_latency_ms);
+    printf("Jitter:             %.2f ms\n", stats.jitter_ms);
+    printf("RTT:                %u ms\n", stats.rtt_ms);
+    printf("Average Bandwidth:  %.2f KB/s\n", stats.bandwidth_kbps);
+    printf("\n");
 }

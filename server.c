@@ -16,9 +16,10 @@ uint32_t packets_received = 0;
 uint32_t packets_sent = 0;
 uint32_t last_stats_time = 0;
 uint32_t last_processed_input[MAX_PLAYERS];
-uint32_t snapshot_sequence = 0;
+uint32_t global_sequence = 0;  // GLOBAL sequence counter for ALL snapshots
+uint32_t last_full_broadcast = 0;
 
-// Store previous positions to detect changes
+// Store previous positions to detect changes for TICK printing
 Player previous_positions[MAX_PLAYERS];
 
 void handle_signal(int sig) {
@@ -28,13 +29,15 @@ void handle_signal(int sig) {
 
 void broadcast_snapshot() {
     GameSnapshot snapshot;
-    snapshot.sequence = snapshot_sequence++;
+    
+    snapshot.sequence = global_sequence++;
     snapshot.timestamp = get_time_ms();
     snapshot.player_count = world.player_count;
     
     memcpy(snapshot.players, world.players, sizeof(world.players));
     memcpy(snapshot.coins, world.coins, sizeof(world.coins));
     
+    // Send to all active players (same snapshot to everyone)
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (world.players[i].active) {
             snapshot.last_processed_input = last_processed_input[i];
@@ -55,10 +58,12 @@ int main() {
     memset(previous_positions, 0, sizeof(previous_positions));
     last_stats_time = time(NULL);
     last_tick_time = get_time_ms();
+    global_sequence = 0;
     
-    printf("=== CAT ARENA SERVER ===\n");
+    printf("=== ARENA SERVER ===\n");
     printf("Port: %d | Simulation: %d Hz | Network: %d Hz\n", PORT, TICK_RATE, NETWORK_SEND_RATE);
     printf("Packet Loss Simulation: 20%%\n");
+    printf("Global Sequence Numbers: ENABLED\n");
     printf("Waiting for players...\n\n");
     
     struct sockaddr_in client_addr;
@@ -80,7 +85,7 @@ int main() {
                         uint8_t resp[2] = {MSG_JOIN, (uint8_t)id};
                         send_packet(server_sock, &client_addr, resp, 2);
                         packets_sent++;
-                        printf("[JOIN] Player %d joined\n", id);
+                        printf("[JOIN] Player %d joined (Total: %d)\n", id, world.player_count);
                         // Initialize previous position for new player
                         previous_positions[id] = world.players[id];
                     }
@@ -94,6 +99,7 @@ int main() {
                         if (cmd->player_id < MAX_PLAYERS && 
                             world.players[cmd->player_id].active) {
                             
+                            // Store input in queue for tick-based processing
                             push_input(&world.input_queues[cmd->player_id], *cmd);
                         }
                     }
@@ -104,7 +110,7 @@ int main() {
                     if (len >= 2) {
                         uint8_t id = buffer[1];
                         remove_player(&world, id);
-                        printf("[LEAVE] Player %d left\n", id);
+                        printf("[LEAVE] Player %d left (Total: %d)\n", id, world.player_count);
                     }
                     break;
                 }
@@ -118,12 +124,24 @@ int main() {
             }
         }
         
-        // Fixed tick simulation
+        // Fixed tick simulation (30Hz)
         if (now - last_tick_time >= (1000 / TICK_RATE)) {
-            simulate_fixed_tick(&world);
+            // Process all queued inputs
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                if (!world.players[i].active) continue;
+                
+                InputCommand cmd;
+                while (pop_input(&world.input_queues[i], &cmd)) {
+                    update_player(&world, i, cmd.direction);
+                    // Track last processed input for ACK
+                    if (cmd.sequence > last_processed_input[i]) {
+                        last_processed_input[i] = cmd.sequence;
+                    }
+                }
+            }
             last_tick_time = now;
             
-            // Check if any player position changed
+            // Only print TICK when positions change (reduces spam)
             int changed = 0;
             for (int i = 0; i < MAX_PLAYERS; i++) {
                 if (world.players[i].active) {
@@ -135,13 +153,11 @@ int main() {
                 }
             }
             
-            // Only print TICK if there was movement
             if (changed) {
                 printf("TICK: ");
                 for (int i = 0; i < MAX_PLAYERS; i++) {
                     if (world.players[i].active) {
                         printf("[P%d x=%d y=%d] ", i, world.players[i].x, world.players[i].y);
-                        // Update previous positions
                         previous_positions[i] = world.players[i];
                     }
                 }
@@ -149,17 +165,17 @@ int main() {
             }
         }
         
-        // Broadcast snapshots
+        // Broadcast snapshots (15Hz)
         if (now - last_broadcast >= (1000 / NETWORK_SEND_RATE)) {
             broadcast_snapshot();
             last_broadcast = now;
         }
         
-        // Stats every second
+        // Print server stats every second
         uint32_t now_sec = time(NULL);
         if (now_sec != last_stats_time) {
-            printf("[STATS] RX: %4u | TX: %4u | Players: %d\n",
-                   packets_received, packets_sent, world.player_count);
+            printf("[STATS] RX: %4u | TX: %4u | Players: %d | Global Seq: %u\n",
+                   packets_received, packets_sent, world.player_count, global_sequence);
             packets_received = 0;
             packets_sent = 0;
             last_stats_time = now_sec;

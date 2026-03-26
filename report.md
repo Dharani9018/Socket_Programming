@@ -463,3 +463,65 @@ Latency: 5 ms | Jitter: 2 ms | Loss: 18% | RTT: 16 ms
 | **Rate Optimization** | Simulate 30Hz, send 15Hz | `TICK_RATE=30, NETWORK_SEND_RATE=15` |
 | **Latency** | Ping/Pong RTT measurement | `rtt = now - ping_send_time` |
 | **Jitter** | Latency variance | `jitter = (curr - prev)` |
+## **Complete Bandwidth Tracking Table**
+
+| Time (ms) | Action | bytes_sent | last_bytes_sent | bytes_diff | Bandwidth (KB/s) |
+|-----------|--------|------------|-----------------|------------|------------------|
+| **0** | Start | 0 | 0 | 0 | - |
+| **100** | Send 150 bytes | 150 | 0 | - | - |
+| **200** | Send 150 bytes | 300 | 0 | - | - |
+| **300** | Send 150 bytes | 450 | 0 | - | - |
+| **400** | Send 150 bytes | 600 | 0 | - | - |
+| **500** | Send 150 bytes | 750 | 0 | - | - |
+| **600** | Send 150 bytes | 900 | 0 | - | - |
+| **700** | Send 150 bytes | 1050 | 0 | - | - |
+| **800** | Send 150 bytes | 1200 | 0 | - | - |
+| **900** | Send 150 bytes | 1350 | 0 | - | - |
+| **1000** | **CALCULATE** | 1500 | 0 | 1500 - 0 = 1500 | 1500 × 8 / 1024 = **11.7 KB/s** |
+| **1000** | **UPDATE** | 1500 | 1500 | - | - |
+| **1100** | Send 100 bytes | 1600 | 1500 | - | - |
+| **1200** | Send 100 bytes | 1700 | 1500 | - | - |
+| **1300** | Send 100 bytes | 1800 | 1500 | - | - |
+| **1400** | Send 100 bytes | 1900 | 1500 | - | - |
+| **1500** | Send 100 bytes | 2000 | 1500 | - | - |
+| **1600** | Send 100 bytes | 2100 | 1500 | - | - |
+| **1700** | Send 100 bytes | 2200 | 1500 | - | - |
+| **1800** | Send 100 bytes | 2300 | 1500 | - | - |
+| **1900** | Send 100 bytes | 2400 | 1500 | - | - |
+| **2000** | **CALCULATE** | 2500 | 1500 | 2500 - 1500 = 1000 | 1000 × 8 / 1024 = **7.8 KB/s** |
+| **2000** | **UPDATE** | 2500 | 2500 | - | - |
+| **3000** | **CALCULATE** | 3000 | 2500 | 3000 - 2500 = 500 | 500 × 8 / 1024 = **3.9 KB/s** |
+| **3000** | **UPDATE** | 3000 | 3000 | - | - |
+
+---
+
+## **Formula Used**
+
+```
+bytes_diff = bytes_sent - last_bytes_sent
+Bandwidth (KB/s) = (bytes_diff × 8) / 1024
+last_bytes_sent = bytes_sent (after calculation)
+```
+
+---
+
+## **Simple Pattern**
+
+| Every Second | We Do |
+|--------------|-------|
+| **1.** | Look at current `bytes_sent` |
+| **2.** | Subtract `last_bytes_sent` |
+| **3.** | That's how many bytes sent in last second |
+| **4.** | Update `last_bytes_sent` to current value |
+
+Step 1: bytes_diff × 8 = bits sent
+Step 2: bits ÷ 1024 = kilobits
+Result: kilobits per second (kbps)
+struct sockaddr_in
+┌─────────────────────────────────────────────┐
+│ sin_family  = AF_INET     (2 bytes)        │
+│ sin_port    = 8080        (2 bytes)        │
+│ sin_addr    = 127.0.0.1   (4 bytes)        │
+│ sin_zero    = {0,0,0,0,0,0,0,0} (8 bytes) │
+└─────────────────────────────────────────────┘
+Total: 16 bytes
