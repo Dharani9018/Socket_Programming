@@ -19,6 +19,7 @@ uint32_t last_bandwidth_update = 0;
 uint32_t last_bytes_sent = 0;
 int has_snapshot = 0;
 uint32_t ping_send_time = 0;
+uint32_t last_stats_print = 0;
 
 void measure_bandwidth(uint32_t now) {
     if (last_bandwidth_update == 0) {
@@ -45,6 +46,7 @@ void send_packet_with_stats(void *data, size_t len) {
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         printf("Usage: %s <server_ip>\n", argv[0]);
+        printf("Example: %s 127.0.0.1\n", argv[0]);
         return 1;
     }
     
@@ -104,6 +106,20 @@ int main(int argc, char *argv[]) {
     refresh();
     
     printf("Game started! Press WASD to move, Q to quit\n");
+    printf("Packet Loss: 20%% simulated on server\n\n");
+    
+    // Initialize sequence tracking
+    stats.last_sequence = 0;
+    stats.packets_lost = 0;
+    stats.packets_received = 0;
+    stats.avg_latency_ms = 0;
+    stats.jitter_ms = 0;
+    stats.rtt_ms = 0;
+    last_stats_print = get_time_ms();
+    
+    // For tracking last printed correction
+    uint32_t last_correction_time = 0;
+    int packet_loss_counter = 0;
     
     while (running) {
         uint32_t now = get_time_ms();
@@ -126,11 +142,22 @@ int main(int argc, char *argv[]) {
             else if ((size_t)len >= sizeof(GameSnapshot)) {
                 GameSnapshot *snap = (GameSnapshot*)buffer;
                 
-                // Packet loss tolerance - drop old packets
-                if (snap->sequence <= stats.last_sequence) {
-                    continue;
+                // PROPER PACKET LOSS DETECTION
+                if (stats.last_sequence > 0) {
+                    if (snap->sequence > stats.last_sequence + 1) {
+                        int lost = snap->sequence - stats.last_sequence - 1;
+                        stats.packets_lost += lost;
+                        packet_loss_counter++;
+                    }
                 }
                 stats.last_sequence = snap->sequence;
+                stats.packets_received++;
+                
+                // Update loss rate
+                uint32_t total = stats.packets_lost + stats.packets_received;
+                if (total > 0) {
+                    stats.packet_loss_rate = (float)stats.packets_lost / total * 100.0f;
+                }
                 
                 uint32_t latency = now - snap->timestamp;
                 update_network_stats(&stats, latency, 1, 0);
@@ -139,6 +166,21 @@ int main(int argc, char *argv[]) {
                 memcpy(world.players, snap->players, sizeof(world.players));
                 memcpy(world.coins, snap->coins, sizeof(world.coins));
                 world.player_count = snap->player_count;
+                
+                // Server correction (only print if actually corrected and not too frequent)
+                if (world.players[player_id].x != snap->players[player_id].x ||
+                    world.players[player_id].y != snap->players[player_id].y) {
+                    
+                    if (now - last_correction_time > 500) {
+                        // Save cursor position, print correction, restore
+                        printf("\n🔄 CORRECTION: (%d,%d) -> (%d,%d)\n",
+                               world.players[player_id].x,
+                               world.players[player_id].y,
+                               snap->players[player_id].x,
+                               snap->players[player_id].y);
+                        last_correction_time = now;
+                    }
+                }
                 
                 // Server correction
                 world.players[player_id] = snap->players[player_id];
@@ -185,7 +227,28 @@ int main(int argc, char *argv[]) {
             send_packet_with_stats(out, sizeof(out));
         }
         
-        // Render
+        // Display network stats on a single line (updates every 200ms)
+        if (now - last_stats_print >= 200) {
+            // Move cursor to bottom line, clear it, print stats
+            int max_y, max_x;
+            getmaxyx(stdscr, max_y, max_x);
+            
+            // Print stats line at the bottom of the screen
+            attron(COLOR_PAIR(3));
+            mvprintw(max_y - 1, 0, 
+                     "Latency: %.0f ms | Jitter: %.0f ms | Loss: %.1f%% | RTT: %u ms | BW: %.0f KB/s     ",
+                     stats.avg_latency_ms,
+                     stats.jitter_ms,
+                     stats.packet_loss_rate,
+                     stats.rtt_ms,
+                     stats.bandwidth_kbps);
+            attroff(COLOR_PAIR(3));
+            refresh();
+            
+            last_stats_print = now;
+        }
+        
+        // Render game
         if (has_snapshot && (now - last_render >= 33)) {
             render_game(&world, player_id, &stats);
             last_render = now;

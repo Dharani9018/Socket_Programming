@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/time.h>
-
+#include <time.h>
 uint32_t get_time_ms(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -54,10 +54,23 @@ int init_client_socket() {
     return sock;
 }
 
+// MODIFIED: Add packet loss simulation
 void send_packet(int sock, struct sockaddr_in *addr, void *data, size_t len) {
-    if (addr) {
-        sendto(sock, data, len, 0, (struct sockaddr *)addr, sizeof(*addr));
+    if (!addr) return;
+    
+    // Simulate 20% packet loss for demonstration
+    static int seeded = 0;
+    if (!seeded) {
+        srand(time(NULL));
+        seeded = 1;
     }
+    
+    if (rand() % 100 < 20) {
+        // Packet dropped - simulate loss
+        return;
+    }
+    
+    sendto(sock, data, len, 0, (struct sockaddr *)addr, sizeof(*addr));
 }
 
 int receive_packet(int sock, void *buffer, size_t len, struct sockaddr_in *from) {
