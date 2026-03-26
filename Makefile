@@ -25,10 +25,4 @@ network.o: network.c network.h common.h
 clean:
 	rm -f *.o server client
 
-run-server: server
-	./server
-
-run-client: client
-	./client 127.0.0.1
-
-.PHONY: all clean run-server run-client
+.PHONY: all clean

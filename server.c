@@ -11,14 +11,12 @@ GameWorld world;
 int server_sock;
 int running = 1;
 uint32_t last_broadcast = 0;
-
-// Server stats
+uint32_t last_tick_time = 0;
 uint32_t packets_received = 0;
 uint32_t packets_sent = 0;
 uint32_t last_stats_time = 0;
-
-// Track last processed input per player
 uint32_t last_processed_input[MAX_PLAYERS];
+uint32_t snapshot_sequence = 0;
 
 void handle_signal(int sig) {
     (void)sig;
@@ -27,14 +25,13 @@ void handle_signal(int sig) {
 
 void broadcast_snapshot() {
     GameSnapshot snapshot;
-    snapshot.sequence = world.sequence++;
+    snapshot.sequence = snapshot_sequence++;
     snapshot.timestamp = get_time_ms();
     snapshot.player_count = world.player_count;
     
     memcpy(snapshot.players, world.players, sizeof(world.players));
     memcpy(snapshot.coins, world.coins, sizeof(world.coins));
     
-    // Send to all active players with their last processed input
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (world.players[i].active) {
             snapshot.last_processed_input = last_processed_input[i];
@@ -53,10 +50,10 @@ int main() {
     init_game_world(&world);
     memset(last_processed_input, 0, sizeof(last_processed_input));
     last_stats_time = time(NULL);
+    last_tick_time = get_time_ms();
     
     printf("=== CAT ARENA SERVER ===\n");
-    printf("Port: %d | Tick Rate: %d Hz | Max Players: %d\n", PORT, TICK_RATE, MAX_PLAYERS);
-    printf("Server running (headless mode)\n");
+    printf("Port: %d | Simulation: %d Hz | Network: %d Hz\n", PORT, TICK_RATE, NETWORK_SEND_RATE);
     printf("Waiting for players...\n\n");
     
     struct sockaddr_in client_addr;
@@ -65,9 +62,9 @@ int main() {
     while (running) {
         uint32_t now = get_time_ms();
         
-        // Receive packets
-        int len = receive_packet(server_sock, buffer, sizeof(buffer), &client_addr);
-        if (len > 0) {
+        // Process incoming packets
+        int len;
+        while ((len = receive_packet(server_sock, buffer, sizeof(buffer), &client_addr)) > 0) {
             packets_received++;
             uint8_t type = buffer[0];
             
@@ -78,25 +75,24 @@ int main() {
                         uint8_t resp[2] = {MSG_JOIN, (uint8_t)id};
                         send_packet(server_sock, &client_addr, resp, 2);
                         packets_sent++;
-                        printf("[JOIN] Player %d joined (Total: %d)\n", 
-                               id, world.player_count);
+                        printf("[JOIN] Player %d joined\n", id);
                     }
                     break;
                 }
                 
                 case MSG_INPUT: {
-                    if (len > 0 && (size_t)len >= sizeof(InputCommand) + 1) {
+                    if ((size_t)len >= sizeof(InputCommand) + 1) {
                         InputCommand *cmd = (InputCommand*)(buffer + 1);
+                        
+                        printf("INPUT: player=%d dir=%d seq=%u\n",
+                               cmd->player_id, cmd->direction, cmd->sequence);
+                        
                         if (cmd->player_id < MAX_PLAYERS && 
                             world.players[cmd->player_id].active) {
                             
-                            // Update last processed input for this player
-                            if (cmd->sequence > last_processed_input[cmd->player_id]) {
-                                last_processed_input[cmd->player_id] = cmd->sequence;
-                            }
-                            
-                            // Apply movement
-                            update_player(&world, cmd->player_id, cmd->direction);
+                            push_input(&world.input_queues[cmd->player_id], *cmd);
+                            printf("QUEUE SIZE: %d\n", 
+                                   world.input_queues[cmd->player_id].count);
                         }
                     }
                     break;
@@ -106,9 +102,7 @@ int main() {
                     if (len >= 2) {
                         uint8_t id = buffer[1];
                         remove_player(&world, id);
-                        last_processed_input[id] = 0;
-                        printf("[LEAVE] Player %d left (Total: %d)\n", 
-                               id, world.player_count);
+                        printf("[LEAVE] Player %d left\n", id);
                     }
                     break;
                 }
@@ -122,17 +116,23 @@ int main() {
             }
         }
         
-        // Broadcast at fixed rate
-        if (now - last_broadcast >= (1000 / TICK_RATE)) {
+        // Fixed tick simulation
+        if (now - last_tick_time >= (1000 / TICK_RATE)) {
+            simulate_fixed_tick(&world);
+            last_tick_time = now;
+        }
+        
+        // Broadcast snapshots
+        if (now - last_broadcast >= (1000 / NETWORK_SEND_RATE)) {
             broadcast_snapshot();
             last_broadcast = now;
         }
         
-        // Print server stats every second
+        // Stats every second
         uint32_t now_sec = time(NULL);
         if (now_sec != last_stats_time) {
-            printf("[STATS] RX: %4u | TX: %4u | Players: %d | Coins: %d\n",
-                   packets_received, packets_sent, world.player_count, MAX_COINS);
+            printf("[STATS] RX: %4u | TX: %4u | Players: %d\n",
+                   packets_received, packets_sent, world.player_count);
             packets_received = 0;
             packets_sent = 0;
             last_stats_time = now_sec;

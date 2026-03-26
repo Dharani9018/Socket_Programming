@@ -27,12 +27,14 @@ typedef struct {
     uint32_t respawn_timer;
 } Coin;
 
+#pragma pack(push, 1)
 typedef struct {
     uint8_t player_id;
     uint8_t direction;
     uint32_t sequence;
     uint32_t timestamp_ms;
 } InputCommand;
+#pragma pack(pop)
 
 typedef struct {
     uint32_t sequence;
@@ -53,8 +55,16 @@ typedef struct {
     uint32_t packets_lost;
     float jitter_ms;
     float bandwidth_kbps;
-    uint32_t rtt_ms;  // Round trip time
+    uint32_t rtt_ms;
+    uint32_t last_sequence;
 } NetworkStats;
+
+typedef struct {
+    InputCommand queue[MAX_PENDING_INPUTS];
+    int head;
+    int tail;
+    int count;
+} InputQueue;
 
 int init_server_socket();
 int init_client_socket();
@@ -62,5 +72,9 @@ void send_packet(int sock, struct sockaddr_in *addr, void *data, size_t len);
 int receive_packet(int sock, void *buffer, size_t len, struct sockaddr_in *from);
 void update_network_stats(NetworkStats *stats, uint32_t latency_ms, int received, uint32_t rtt);
 uint32_t get_time_ms(void);
+
+void init_input_queue(InputQueue *q);
+void push_input(InputQueue *q, InputCommand cmd);
+int pop_input(InputQueue *q, InputCommand *cmd);
 
 #endif

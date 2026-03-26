@@ -18,10 +18,7 @@ uint32_t bytes_sent = 0;
 uint32_t last_bandwidth_update = 0;
 uint32_t last_bytes_sent = 0;
 int has_snapshot = 0;
-
-// For RTT tracking
 uint32_t ping_send_time = 0;
-uint32_t last_ping_sequence = 0;
 
 void measure_bandwidth(uint32_t now) {
     if (last_bandwidth_update == 0) {
@@ -102,75 +99,49 @@ int main(int argc, char *argv[]) {
     uint32_t last_ping = 0;
     uint32_t last_render = 0;
     uint32_t input_sequence = 0;
-    uint32_t last_sequence_received = 0;
     
-    // Clear screen initially
     clear();
     refresh();
+    
+    printf("Game started! Press WASD to move, Q to quit\n");
     
     while (running) {
         uint32_t now = get_time_ms();
         
-        // Send ping for RTT measurement
+        // Send ping for RTT
         if (now - last_ping >= 1000) {
-            uint8_t ping[5];
-            ping[0] = MSG_PING;
+            uint8_t ping = MSG_PING;
             ping_send_time = now;
-            last_ping_sequence++;
-            memcpy(ping + 1, &last_ping_sequence, 4);
-            send_packet_with_stats(ping, 5);
+            send_packet_with_stats(&ping, 1);
             last_ping = now;
         }
         
         // Receive packets
-        int len = receive_packet(client_sock, buffer, sizeof(buffer), &from);
-        if (len > 0) {
-            if (buffer[0] == MSG_PONG && len >= 5) {
+        int len;
+        while ((len = receive_packet(client_sock, buffer, sizeof(buffer), &from)) > 0) {
+            if (buffer[0] == MSG_PONG) {
                 uint32_t rtt = get_time_ms() - ping_send_time;
                 update_network_stats(&stats, rtt / 2, 1, rtt);
             }
             else if ((size_t)len >= sizeof(GameSnapshot)) {
-                GameSnapshot *snapshot = (GameSnapshot*)buffer;
+                GameSnapshot *snap = (GameSnapshot*)buffer;
                 
-                // Check for packet loss
-                if (last_sequence_received > 0 && 
-                    snapshot->sequence > last_sequence_received + 1) {
-                    // Lost packets detected
-                    int lost = snapshot->sequence - last_sequence_received - 1;
-                    for (int i = 0; i < lost; i++) {
-                        update_network_stats(&stats, 0, 0, 0);
-                    }
+                // Packet loss tolerance - drop old packets
+                if (snap->sequence <= stats.last_sequence) {
+                    continue;
                 }
-                last_sequence_received = snapshot->sequence;
+                stats.last_sequence = snap->sequence;
                 
-                uint32_t latency = now - snapshot->timestamp;
+                uint32_t latency = now - snap->timestamp;
                 update_network_stats(&stats, latency, 1, 0);
                 
-                // Add to jitter buffer
-                add_to_jitter_buffer(&world, snapshot);
-                process_jitter_buffer(&world);
+                // Apply snapshot directly
+                memcpy(world.players, snap->players, sizeof(world.players));
+                memcpy(world.coins, snap->coins, sizeof(world.coins));
+                world.player_count = snap->player_count;
                 
-                // Full sync with server
-                memcpy(world.players, snapshot->players, sizeof(world.players));
-                memcpy(world.coins, snapshot->coins, sizeof(world.coins));
-                world.player_count = snapshot->player_count;
-                
-                // Reconcile with prediction buffer
-                input_buffer.last_ack_sequence = snapshot->last_processed_input;
-                
-                // Remove acknowledged inputs
-                int new_count = 0;
-                for (int i = 0; i < input_buffer.count; i++) {
-                    if (input_buffer.inputs[i].sequence > input_buffer.last_ack_sequence) {
-                        input_buffer.inputs[new_count++] = input_buffer.inputs[i];
-                    }
-                }
-                input_buffer.count = new_count;
-                
-                // Re-apply pending inputs (prediction correction)
-                for (int i = 0; i < input_buffer.count; i++) {
-                    update_player(&world, player_id, input_buffer.inputs[i].direction);
-                }
+                // Server correction
+                world.players[player_id] = snap->players[player_id];
                 
                 has_snapshot = 1;
             }
@@ -179,10 +150,17 @@ int main(int argc, char *argv[]) {
         measure_bandwidth(now);
         
         // Handle input
-        int dir = get_input();
-        if (dir == -1) {
-            running = 0;
-            break;
+        int dir = 0;
+        int ch = getch();
+        
+        if (ch != ERR) {
+            switch(ch) {
+                case 'w': case 'W': dir = 1; break;
+                case 's': case 'S': dir = 2; break;
+                case 'a': case 'A': dir = 3; break;
+                case 'd': case 'D': dir = 4; break;
+                case 'q': case 'Q': running = 0; break;
+            }
         }
         
         if (dir > 0) {
@@ -192,29 +170,24 @@ int main(int argc, char *argv[]) {
             cmd.sequence = input_sequence++;
             cmd.timestamp_ms = now;
             
+            // Store for reconciliation
             if (input_buffer.count < MAX_PENDING_INPUTS) {
                 input_buffer.inputs[input_buffer.count++] = cmd;
             }
             
-            // Predict movement locally
+            // CLIENT PREDICTION - move instantly
             update_player(&world, player_id, (uint8_t)dir);
             
+            // Send to server
             uint8_t out[sizeof(cmd) + 1];
             out[0] = MSG_INPUT;
             memcpy(out + 1, &cmd, sizeof(cmd));
             send_packet_with_stats(out, sizeof(out));
         }
         
-        // Render with interpolation
+        // Render
         if (has_snapshot && (now - last_render >= 33)) {
-            // Interpolate positions for smooth movement
-            interpolate_positions(&world, 0.5f);
             render_game(&world, player_id, &stats);
-            last_render = now;
-        } else if (!has_snapshot && (now - last_render >= 1000)) {
-            clear();
-            mvprintw(GRID_HEIGHT/2, GRID_WIDTH/2 - 10, "Waiting for server...");
-            refresh();
             last_render = now;
         }
         

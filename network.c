@@ -65,45 +65,61 @@ int receive_packet(int sock, void *buffer, size_t len, struct sockaddr_in *from)
     return recvfrom(sock, buffer, len, 0, (struct sockaddr *)from, &from_len);
 }
 
+void init_input_queue(InputQueue *q) {
+    memset(q, 0, sizeof(*q));
+    q->head = 0;
+    q->tail = 0;
+    q->count = 0;
+}
+
+void push_input(InputQueue *q, InputCommand cmd) {
+    if (q->count < MAX_PENDING_INPUTS) {
+        q->queue[q->tail] = cmd;
+        q->tail = (q->tail + 1) % MAX_PENDING_INPUTS;
+        q->count++;
+    }
+}
+
+int pop_input(InputQueue *q, InputCommand *cmd) {
+    if (q->count == 0) return 0;
+    *cmd = q->queue[q->head];
+    q->head = (q->head + 1) % MAX_PENDING_INPUTS;
+    q->count--;
+    return 1;
+}
+
 void update_network_stats(NetworkStats *stats, uint32_t latency_ms, int received, uint32_t rtt) {
-    static uint32_t samples[100];
-    static int sample_count = 0;
-    static uint32_t sum = 0;
     static uint32_t prev_latency = 0;
+    static int sample_count = 0;
     
     if (received) {
-        // Update RTT
-        if (rtt > 0) {
-            stats->rtt_ms = (stats->rtt_ms * 0.9f + rtt * 0.1f);
-        }
-        
-        // Update latency stats
-        if (sample_count < 100) {
-            samples[sample_count++] = latency_ms;
-            sum += latency_ms;
-            stats->avg_latency_ms = (float)sum / sample_count;
+        if (sample_count == 0) {
+            stats->avg_latency_ms = latency_ms;
         } else {
-            static int index = 0;
-            sum = sum - samples[index] + latency_ms;
-            samples[index] = latency_ms;
-            stats->avg_latency_ms = (float)sum / 100;
-            index = (index + 1) % 100;
+            stats->avg_latency_ms = stats->avg_latency_ms * 0.9f + latency_ms * 0.1f;
         }
         
-        // Update min/max
+        if (rtt > 0) {
+            if (stats->rtt_ms == 0) {
+                stats->rtt_ms = rtt;
+            } else {
+                stats->rtt_ms = stats->rtt_ms * 0.9f + rtt * 0.1f;
+            }
+        }
+        
         if (latency_ms < stats->min_latency_ms || stats->min_latency_ms == 0)
             stats->min_latency_ms = latency_ms;
         if (latency_ms > stats->max_latency_ms)
             stats->max_latency_ms = latency_ms;
         
-        // Calculate jitter (variance)
-        if (sample_count > 1) {
+        if (sample_count > 0) {
             float diff = (float)abs((int)latency_ms - (int)prev_latency);
             stats->jitter_ms = stats->jitter_ms * 0.9f + diff * 0.1f;
         }
         prev_latency = latency_ms;
         
         stats->packets_received++;
+        sample_count++;
     } else {
         stats->packets_lost++;
     }
