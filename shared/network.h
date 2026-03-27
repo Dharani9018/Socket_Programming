@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 #include <netinet/in.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include "common.h"
 
 typedef enum {
@@ -40,7 +38,7 @@ typedef struct {
 
 typedef struct {
     uint32_t sequence;
-    uint32_t last_processed_input;
+    uint32_t last_processed_input[MAX_PLAYERS];   // ✅ FIX: array per player
     uint32_t timestamp;
     uint8_t player_count;
     Player players[MAX_PLAYERS];
@@ -69,22 +67,13 @@ typedef struct {
     int count;
 } InputQueue;
 
-// DTLS Functions
-int init_dtls_server(SSL_CTX **ctx, SSL **ssl, int sock);
-int init_dtls_client(SSL_CTX **ctx, SSL **ssl, int sock);
-void cleanup_dtls(SSL_CTX *ctx, SSL *ssl);
-
-// Socket functions
 int init_server_socket();
 int init_client_socket();
-void send_packet_dtls(SSL *ssl, void *data, size_t len);
-int receive_packet_dtls(SSL *ssl, void *buffer, size_t len);
 void send_packet(int sock, struct sockaddr_in *addr, void *data, size_t len);
 int receive_packet(int sock, void *buffer, size_t len, struct sockaddr_in *from);
 void update_network_stats(NetworkStats *stats, uint32_t latency_ms, int received, uint32_t rtt, uint32_t sequence);
 uint32_t get_time_ms(void);
 
-// Input queue functions
 void init_input_queue(InputQueue *q);
 void push_input(InputQueue *q, InputCommand cmd);
 int pop_input(InputQueue *q, InputCommand *cmd);
