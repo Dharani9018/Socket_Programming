@@ -18,7 +18,7 @@ static void draw_rounded_rect(int x, int y, int w, int h,
                                      (float)w, (float)h},
                          roundness, 6, c);
 }
-
+//Draw grid.
 void render_grid(int gw, int gh, int cs) {
     for (int x = 0; x <= gw; x++)
         DrawLine(x * cs, 0, x * cs, gh * cs, COL_GRID);
@@ -26,8 +26,9 @@ void render_grid(int gw, int gh, int cs) {
         DrawLine(0, y * cs, gw * cs, y * cs, COL_GRID);
 }
 
-
-void render_coin(int cx, int cy, int size) {
+//Draws coin.
+void render_coin(int cx, int cy, int size) 
+{
     int r  = size / 2 - 1;
     int ox = cx + size / 2;
     int oy = cy + size / 2;
@@ -38,7 +39,7 @@ void render_coin(int cx, int cy, int size) {
                (Color){255, 255, 200, 160});
 }
 
-
+//Draws player character.
 void render_player(int px, int py, int size, Color col, int is_local) {
 
     DrawRectangle(px + 2, py + 3, size, size, (Color){0, 0, 0, 70});
@@ -58,14 +59,16 @@ void render_player(int px, int py, int size, Color col, int is_local) {
 
 
 
-static Color quality_color(float loss_pct) {
-    if (loss_pct < 5.0f)  return COL_ACCENT;
-    if (loss_pct < 15.0f) return COL_WARN;
-    return COL_BAD;
+static Color quality_color(float loss_pct) //return colors based on packt loss.
+{
+    if (loss_pct < 5.0f)  return COL_ACCENT;//good (green)
+    if (loss_pct < 15.0f) return COL_WARN;//Warning (yellow)
+    return COL_BAD; //Bad (red).
 }
 
 static void draw_loss_bar(int x, int y, int w, int h,
-                           float frac, Color fill) {
+                           float frac, Color fill) 
+{
     if (frac > 1.0f) frac = 1.0f;
     if (frac < 0.0f) frac = 0.0f;
     DrawRectangle(x, y, w, h, (Color){40, 50, 70, 200});
@@ -74,9 +77,10 @@ static void draw_loss_bar(int x, int y, int w, int h,
 }
 
 
-
+//Score board network stats.
 void render_hud(GameWorld *w, int local_id,
-                NetworkStats *stats, int sw, int sh) {
+                NetworkStats *stats, int sw, int sh) 
+{
 
 
     const int px = 12, py = 12, pw = 230, ph = 194;
