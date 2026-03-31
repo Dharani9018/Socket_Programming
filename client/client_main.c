@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     const int SW = GRID_WIDTH  * CELL_SIZE;
     const int SH = GRID_HEIGHT * CELL_SIZE;
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(SW, SH, "Cat Arena [DTLS]");
+    InitWindow(SW, SH, "CoinBox [DTLS]");
     SetTargetFPS(60); //60 frames per second.
 
 

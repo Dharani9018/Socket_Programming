@@ -91,7 +91,7 @@ void render_hud(GameWorld *w, int local_id,
         0.1f, 6, (Color){60, 70, 100, 180});
 
     // Title + DTLS badge
-    DrawText("CAT ARENA", px + 10, py + 10, 18, COL_ACCENT);
+    DrawText("CoinBox", px + 10, py + 10, 18, COL_ACCENT);
     DrawText("DTLS", px + pw - 44, py + 13, 11, (Color){80, 200, 255, 220});
     DrawLine(px + 10, py + 32, px + pw - 10, py + 32,
              (Color){60, 70, 100, 200});

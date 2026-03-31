@@ -12,7 +12,7 @@ int        dedicated_sock[MAX_PLAYERS]; //One upd socket per connected player.
 SSL       *client_ssl[MAX_PLAYERS]; //one ssl session perplayer.
 SSL_CTX   *dtls_ctx                 = NULL; //dtls context.(certificates, settings).
 int        running                  = 1; //Server loop control flag.
-uint32_t   last_processed_input[MAX_PLAYERS]; //Highes input sequnce processed per player.
+uint32_t   last_processed_input[MAX_PLAYERS]; //Higher input sequnce processed per player.
 uint32_t   global_sequence          = 0; //snapshot counter: increases each broadcast. 
 uint32_t   packets_received         = 0; //total number of packets received.
 uint32_t   packets_sent             = 0; //total number of packets sent.
@@ -67,7 +67,7 @@ int main(void)
     uint32_t last_broadcast  = get_time_ms();
     uint32_t last_stats_time = (uint32_t)time(NULL);
 
-    printf("=== CAT ARENA SERVER ===\n");
+    printf("    CoinBox SERVER    \n");
     printf("Transport : DTLS 1.2 over UDP (OpenSSL)\n");
     printf("Port      : %d\n", PORT);
     printf("Sim rate  : %d Hz\n", TICK_RATE);

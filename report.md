@@ -22,7 +22,7 @@
 **Core Rule:** Clients never trust their own positions. They predict locally but accept corrections from the server.
 
 ### ⭒ **Server Components**
-![alt text](Server_Components.png)
+![alt text](./images/Server_Components.png)
 
 **What the server maintains:**
 - **Main Socket** - Listens for new players (plain UDP)
@@ -60,7 +60,7 @@ graph TD
 ```
 
 ### ⭒ **Client Components**
-![alt text](Client_components.png)
+![alt text](./images/Client_components.png)
 
 **What each client uses:**
 - **Single UDP Socket** - Handles everything: joining, sending inputs, receiving game state
@@ -497,7 +497,7 @@ for (int i = 0; i < MAX_PLAYERS; i++) {
 **How it works:** Server is the single source of truth. Every 66ms, server copies complete world state (4 players, 15 coins) into a GameSnapshot struct and sends it encrypted to every active client. Clients apply snapshot directly - server state overwrites client state.
 
 ```c
-// server_handlers.c — broadcast_snapshot()
+// server_handlers.c : broadcast_snapshot()
 GameSnapshot snap;
 snap.sequence     = global_sequence++;   // Increases by 1 each time
 snap.timestamp    = get_time_ms();       // Server send time
