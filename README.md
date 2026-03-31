@@ -182,7 +182,7 @@ The 20% loss is intentional : it forces the system to demonstrate loss tolerance
 - MSG_LEAVE uses the trusted server-side slot index, not the client-supplied byte
 
 ---
----
+
 
 ## Makefile Targets
 
@@ -203,4 +203,4 @@ make run-client   # build and run client connecting to 127.0.0.1
 - The server must be started before any client
 - All clients must be on the same network as the server (or use the loopback address for local testing)
 ---
-![more](./report.pdf)
+[more](./report.pdf)
