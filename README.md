@@ -65,9 +65,13 @@ Waiting for players...
 ./game_client 127.0.0.1
 ```
 Expected Output: 
+---
 ![Client1_image](./images/client1.png)
+---
 ![client2_image](./images/client2.png)
+---
 On exit:
+---
 ![client_image](./images/client.png)
 
 Replace `127.0.0.1` with the server's IP address to connect from another machine on the same network.
@@ -198,4 +202,5 @@ make run-client   # build and run client connecting to 127.0.0.1
 - Run `make certs` on each machine before the first launch
 - The server must be started before any client
 - All clients must be on the same network as the server (or use the loopback address for local testing)
+---
 ![more](./report.pdf)
